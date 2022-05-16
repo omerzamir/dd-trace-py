@@ -173,7 +173,7 @@ def test_export_server_down():
         exp.export(test_pprof.TEST_EVENTS, 0, 1)
     e = t.value.last_attempt.exception()
     assert isinstance(e, (IOError, OSError))
-    assert str(t.value).startswith("[Errno ")
+    assert str(t.value).startswith("[Errno ") or str(t.value).startswith("[WinError ")
 
 
 def test_export_timeout(endpoint_test_timeout_server):
