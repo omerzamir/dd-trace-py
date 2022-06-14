@@ -914,3 +914,23 @@ class FlaskRequestTestCase(BaseFlaskTestCase):
 
         span = traces[0][0]
         assert span.get_tag("http.response.headers.my-response-header") == "my_response_value"
+
+    def test_request_streaming(self):
+        @self.tracer.wrap("traced_func")
+        def traced_func():
+            return "Hello Flask", 200
+
+        @self.app.route("/")
+        def index():
+            traced_func_generator = (traced_func() for _ in range(1))
+            return self.app.response_class(traced_func_generator)
+
+        res = self.client.get("/")
+        assert res.status_code == 200
+        traces = self.pop_traces()
+
+        # The current behavior is less than ideal
+        # the traced_func span should be a child span of flask.request
+        assert len(traces) == 2
+        assert traces[0][0].name == "flask.request"
+        assert traces[1][0].name == "traced_func"
