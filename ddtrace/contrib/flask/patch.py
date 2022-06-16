@@ -121,6 +121,9 @@ def patch():
     _w("flask", "render_template", traced_render_template)
     _w("flask", "render_template_string", traced_render_template_string)
 
+    # trace stream_with_context functions
+    _w("flask.helpers", "stream_with_context", traced_stream_with_context)
+    _w("flask", "stream_with_context", traced_stream_with_context)
     # flask.blueprints.Blueprint traced hook decorators
     bp_hooks = [
         "after_app_request",
@@ -277,6 +280,35 @@ def _wrap_start_response(func, span, request):
         return func(status_code, headers)
 
     return traced_start_response
+
+
+@with_instance_pin
+def traced_stream_with_context(pin, wrapped, instance, args, kwargs):
+    """
+    Wrapper for flask.stream_with_context
+
+    This function wraps streamed responses.
+    Note - Responses are stream after the flask wsgi app is called. Therefore the span produced by this
+    wrapper will be a sibling span of flask.request.
+    """
+    # stream_with_context(...) copies the current request context before returning an iterable.
+    # To avoid raising a RuntimeError in the wsgi server we must wrap the iterable returned by
+    # this function: https://github.com/pallets/flask/blob/2.1.2/src/flask/helpers.py#L113
+    iterable = wrapped(*args, **kwargs)
+
+    resource = u" ".join((flask.request.method, flask.request.path))
+
+    def _wraped_iterator():
+        # TOFIX: If StopIteration is never raised (ex. break is called during iteration) this span will NOT be finished.
+        with pin.tracer.trace(
+            "flask.streamed_response",
+            service=trace_utils.int_service(pin, config.flask),
+            resource=resource,
+            span_type=SpanTypes.WEB,
+        ):
+            yield from iterable
+
+    return _wraped_iterator()
 
 
 @with_instance_pin

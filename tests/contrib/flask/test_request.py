@@ -5,6 +5,7 @@ import flask
 from flask import abort
 from flask import jsonify
 from flask import make_response
+import pytest
 
 from ddtrace.constants import ANALYTICS_SAMPLE_RATE_KEY
 from ddtrace.contrib.flask.patch import flask_version
@@ -915,22 +916,52 @@ class FlaskRequestTestCase(BaseFlaskTestCase):
         span = traces[0][0]
         assert span.get_tag("http.response.headers.my-response-header") == "my_response_value"
 
-    def test_request_streaming(self):
-        @self.tracer.wrap("traced_func")
-        def traced_func():
-            return "Hello Flask", 200
 
-        @self.app.route("/")
-        def index():
-            traced_func_generator = (traced_func() for _ in range(1))
-            return self.app.response_class(traced_func_generator)
+@pytest.mark.snapshot()
+def test_streaming_with_context(ddtrace_run_python_code_in_subprocess):
+    # The flask test client does not support streaming responses
+    # The code block below:
+    # 1. creates a flask app with an endpoint that returns a generator (the generator yields traced functions)
+    # 2. runs the flask app in a thread and waits 0.5 second for the app to start
+    # 3. Sends a request and asserts 5 hello strings were successfully streamed
+    # 4. Flushes all traces to the agent and terminates the process (this also kills the running flask app)
+    # The snapshot produced showcases the new streamed_with_context span
+    out, err, status, _ = ddtrace_run_python_code_in_subprocess(
+        """
+from ddtrace import tracer
+from flask import Flask
+import urllib
+import time
+import threading
+import os
 
-        res = self.client.get("/")
-        assert res.status_code == 200
-        traces = self.pop_traces()
+app = Flask(__name__)
 
-        # The current behavior is less than ideal
-        # the traced_func span should be a child span of flask.request
-        assert len(traces) == 2
-        assert traces[0][0].name == "flask.request"
-        assert traces[1][0].name == "traced_func"
+def traced_func(i):
+    with tracer.trace("traced_function_%d" % (i,)):
+        return "Hello Flask %d" % (i,)
+
+@app.route('/')
+def hello():
+    from flask import stream_with_context
+    traced_func_generator = stream_with_context((traced_func(i) for i in range(5)))
+    return app.response_class(traced_func_generator)
+
+
+t = threading.Thread(target=app.run)
+t.start()
+# sleep half a second to start the flask server
+time.sleep(0.5)
+
+with urllib.request.urlopen("http://localhost:5000/") as resp:
+    assert resp.read() == b"Hello Flask 0Hello Flask 1Hello Flask 2Hello Flask 3Hello Flask 4"
+    assert resp.status == 200
+
+tracer.flush()
+os._exit(0)
+"""
+    )
+
+    assert status == 0, err
+    assert b" * Serving Flask app 'test' (lazy loading)\n" in out
+    assert b"Running on http://127.0.0.1:5000/" in err

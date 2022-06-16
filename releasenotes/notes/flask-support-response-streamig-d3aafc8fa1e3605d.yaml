@@ -1,0 +1,4 @@
+---
+features:
+  - |
+    flask: instrument streamed responses. `flask.streamed_response` will measure the duration of a streamed response.
