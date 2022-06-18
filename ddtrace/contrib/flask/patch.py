@@ -298,17 +298,24 @@ def traced_stream_with_context(pin, wrapped, instance, args, kwargs):
 
     resource = u" ".join((flask.request.method, flask.request.path))
 
-    def _wraped_iterator():
-        # TOFIX: If StopIteration is never raised (ex. break is called during iteration) this span will NOT be finished.
+    def _wraped_generator():
+        # TO FIX: GeneratorExit is called when the generator returned stream_with_context(...) is garbage collected.
+        # Calling span.finish() at the point might work in CPython but this could cause issues in other python
+        # implementation (ex. PyPy) or when a reference to the generator persists well after the final iteration.
         with pin.tracer.trace(
             "flask.streamed_response",
             service=trace_utils.int_service(pin, config.flask),
             resource=resource,
             span_type=SpanTypes.WEB,
         ):
-            yield from iterable
+            try:
+                while True:
+                    yield iterable.__next__()
+            except (StopIteration, GeneratorExit):
+                # Do not set Span.error if StopIteration or GeneratorExit is raised. This is expected.
+                pass
 
-    return _wraped_iterator()
+    return _wraped_generator()
 
 
 @with_instance_pin

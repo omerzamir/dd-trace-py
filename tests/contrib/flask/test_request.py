@@ -918,50 +918,27 @@ class FlaskRequestTestCase(BaseFlaskTestCase):
 
 
 @pytest.mark.snapshot()
-def test_streaming_with_context(ddtrace_run_python_code_in_subprocess):
-    # The flask test client does not support streaming responses
-    # The code block below:
-    # 1. creates a flask app with an endpoint that returns a generator (the generator yields traced functions)
-    # 2. runs the flask app in a thread and waits 0.5 second for the app to start
-    # 3. Sends a request and asserts 5 hello strings were successfully streamed
-    # 4. Flushes all traces to the agent and terminates the process (this also kills the running flask app)
-    # The snapshot produced showcases the new streamed_with_context span
-    out, err, status, _ = ddtrace_run_python_code_in_subprocess(
-        """
-from ddtrace import tracer
-from flask import Flask
-import urllib
-import time
-import threading
-import os
+def test_request_streaming_with_context():
+    from ddtrace import patch
+    from ddtrace import tracer
 
-app = Flask(__name__)
+    patch(flask=True)
 
-def traced_func(i):
-    with tracer.trace("traced_function_%d" % (i,)):
-        return "Hello Flask %d" % (i,)
+    def traced_func(i):
+        with tracer.trace("traced_function_%d" % (i,)):
+            return "Hello Flask %d" % (i,)
 
-@app.route('/')
-def hello():
-    from flask import stream_with_context
-    traced_func_generator = stream_with_context((traced_func(i) for i in range(5)))
-    return app.response_class(traced_func_generator)
+    app = flask.Flask(__name__, template_folder="test_templates/")
+    client = app.test_client()
 
+    @app.route("/")
+    def hello():
+        from flask import stream_with_context
 
-t = threading.Thread(target=app.run)
-t.start()
-# sleep half a second to start the flask server
-time.sleep(0.5)
+        # Note - flask test client streams the first response and then breaks (which raises GeneratorExit).
+        # Span.name=traced_function_0 will be generated. Span.name=traced_function_1 will not.
+        generator = (traced_func(i) for i in range(2))
+        traced_func_generator = stream_with_context(generator)
+        return app.response_class(traced_func_generator)
 
-with urllib.request.urlopen("http://localhost:5000/") as resp:
-    assert resp.read() == b"Hello Flask 0Hello Flask 1Hello Flask 2Hello Flask 3Hello Flask 4"
-    assert resp.status == 200
-
-tracer.flush()
-os._exit(0)
-"""
-    )
-
-    assert status == 0, err
-    assert b" * Serving Flask app 'test' (lazy loading)\n" in out
-    assert b"Running on http://127.0.0.1:5000/" in err
+    client.get("/")
