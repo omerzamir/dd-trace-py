@@ -657,6 +657,7 @@ jobs:
           # TODO: Re-enable coverage for Flask tests
           store_coverage: false
           pattern: 'flask(_cache)?'
+          snapshot: true
 
   gevent:
     <<: *contrib_job
