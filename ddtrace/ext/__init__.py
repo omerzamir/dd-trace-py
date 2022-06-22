@@ -2,6 +2,7 @@ class SpanTypes(object):
     CACHE = "cache"
     CASSANDRA = "cassandra"
     ELASTICSEARCH = "elasticsearch"
+    OPENSEARCH = "opensearch"
     GRPC = "grpc"
     HTTP = "http"
     MONGODB = "mongodb"
