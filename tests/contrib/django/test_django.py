@@ -26,6 +26,7 @@ from ddtrace.constants import USER_KEEP
 from ddtrace.contrib.django.patch import instrument_view
 from ddtrace.contrib.django.utils import get_request_uri
 from ddtrace.ext import http
+from ddtrace.ext import user
 from ddtrace.internal.compat import PY2
 from ddtrace.internal.compat import binary_type
 from ddtrace.internal.compat import string_type
@@ -1226,7 +1227,7 @@ def test_django_request_distributed(client, test_spans):
     headers = {
         get_wsgi_header(HTTP_HEADER_TRACE_ID): "12345",
         get_wsgi_header(HTTP_HEADER_PARENT_ID): "78910",
-        get_wsgi_header(HTTP_HEADER_SAMPLING_PRIORITY): USER_KEEP,
+        get_wsgi_header(HTTP_HEADER_SAMPLING_PRIORITY): str(USER_KEEP),
     }
     resp = client.get("/", **headers)
     assert resp.status_code == 200
@@ -1258,7 +1259,7 @@ def test_django_request_distributed_disabled(client, test_spans):
     headers = {
         get_wsgi_header(HTTP_HEADER_TRACE_ID): "12345",
         get_wsgi_header(HTTP_HEADER_PARENT_ID): "78910",
-        get_wsgi_header(HTTP_HEADER_SAMPLING_PRIORITY): USER_KEEP,
+        get_wsgi_header(HTTP_HEADER_SAMPLING_PRIORITY): str(USER_KEEP),
     }
     with override_config("django", dict(distributed_tracing_enabled=False)):
         resp = client.get("/", **headers)
@@ -1379,6 +1380,28 @@ def test_template(test_spans):
 
     span = spans[1]
     assert span.get_tag("django.template.name") == "my-template"
+
+
+def test_template_no_instrumented(test_spans):
+    """
+    When rendering templates with instrument_templates option disabled
+
+    This test assert that changing the value at runtime/after patching
+    properly disables template spans.
+    """
+    # prepare a base template using the default engine
+    with override_config("django", dict(instrument_templates=False)):
+        template = django.template.Template("Hello {{name}}!")
+        ctx = django.template.Context({"name": "Django"})
+
+        assert template.render(ctx) == "Hello Django!"
+        spans = test_spans.get_spans()
+        assert len(spans) == 0
+
+        template.name = "my-template"
+        assert template.render(ctx) == "Hello Django!"
+        spans = test_spans.get_spans()
+        assert len(spans) == 0
 
 
 @pytest.mark.skipif(PY2, reason="pathlib is not part of the Python 2 stdlib")
@@ -1562,6 +1585,7 @@ def test_django_use_handler_resource_format_env(client, test_spans):
         ("DD_DJANGO_INSTRUMENT_DATABASES", "instrument_databases"),
         ("DD_DJANGO_INSTRUMENT_CACHES", "instrument_caches"),
         ("DD_DJANGO_INSTRUMENT_MIDDLEWARE", "instrument_middleware"),
+        ("DD_DJANGO_INSTRUMENT_TEMPLATES", "instrument_templates"),
     ],
 )
 def test_enable_django_instrument_env(env_var, instrument_x, ddtrace_run_python_code_in_subprocess):
@@ -1585,6 +1609,7 @@ def test_enable_django_instrument_env(env_var, instrument_x, ddtrace_run_python_
         ("DD_DJANGO_INSTRUMENT_DATABASES", "instrument_databases"),
         ("DD_DJANGO_INSTRUMENT_CACHES", "instrument_caches"),
         ("DD_DJANGO_INSTRUMENT_MIDDLEWARE", "instrument_middleware"),
+        ("DD_DJANGO_INSTRUMENT_TEMPLATES", "instrument_templates"),
     ],
 )
 def test_disable_django_instrument_env(env_var, instrument_x, ddtrace_run_python_code_in_subprocess):
@@ -1845,3 +1870,17 @@ def test_connections_patched():
         assert isinstance(conn.cursor, wrapt.ObjectProxy)
 
     assert isinstance(connection.cursor, wrapt.ObjectProxy)
+
+
+def test_django_get_user(client, test_spans):
+    assert client.get("/identify/").status_code == 200
+
+    root = test_spans.get_root_span()
+
+    # Values defined in tests/contrib/django/views.py::identify
+    assert root.get_tag(user.ID) == "usr.id"
+    assert root.get_tag(user.EMAIL) == "usr.email"
+    assert root.get_tag(user.SESSION_ID) == "usr.session_id"
+    assert root.get_tag(user.NAME) == "usr.name"
+    assert root.get_tag(user.ROLE) == "usr.role"
+    assert root.get_tag(user.SCOPE) == "usr.scope"

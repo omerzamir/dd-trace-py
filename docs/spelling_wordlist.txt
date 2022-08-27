@@ -25,6 +25,7 @@ app
 aredis
 args
 asgi
+async
 asyncio
 asyncpg
 attrs
@@ -74,6 +75,8 @@ fastapi
 formatter
 gRPC
 gevent
+graphql
+graphene
 greenlet
 greenlets
 grpc
@@ -108,6 +111,7 @@ mongoengine
 multiline
 multiprocess
 multithreaded
+mypy
 mysql
 mysqlclient
 mysqldb
@@ -138,6 +142,7 @@ quickstart
 redis
 rediscluster
 renderers
+resolvers
 repo
 respawn
 rq
@@ -145,6 +150,7 @@ runnable
 runtime
 runtimes
 runtime-id
+RLock
 sanic
 screenshots
 serializable
@@ -167,6 +173,7 @@ unpatch
 unpatched
 unregister
 unvendored
+uri
 url
 urls
 username
@@ -181,3 +188,5 @@ yaaredis
 Kinesis
 AppSec
 libddwaf
+Serverless
+serverless
