@@ -4,6 +4,7 @@ class SpanTypes(object):
     ELASTICSEARCH = "elasticsearch"
     OPENSEARCH = "opensearch"
     GRPC = "grpc"
+    GRAPHQL = "graphql"
     HTTP = "http"
     MONGODB = "mongodb"
     REDIS = "redis"
